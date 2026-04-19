@@ -1,5 +1,6 @@
 import re
-from typing import List, Tuple
+from typing import List, Tuple, Optional
+from app.services.email_parser import extract_urls, normalize_headers, detect_attachment_risks
 
 
 URGENT_PATTERNS = [
@@ -38,6 +39,14 @@ SUSPICIOUS_DOMAIN_PATTERNS = [
     r"support-update"
 ]
 
+SUSPICIOUS_URL_PATTERNS = [
+    r"login",
+    r"verify",
+    r"reset",
+    r"secure",
+    r"account",
+    r"update"
+]
 
 def find_pattern_matches(text: str, patterns: List[str]) -> List[str]:
     matches = []
@@ -50,7 +59,10 @@ def find_pattern_matches(text: str, patterns: List[str]) -> List[str]:
     return matches
 
 
-def analyze_email_rules(sender: str, subject: str, body: str) -> Tuple[str, str, List[str], List[str], str]:
+def analyze_email_rules(
+    sender: str, subject: str, body: str,
+    headers: Optional[str] = None, attachments: Optional[List[str]] = None
+ ) -> Tuple[str, str, List[str], List[str], str]:
     reasons = []
     indicators = []
 
@@ -77,23 +89,46 @@ def analyze_email_rules(sender: str, subject: str, body: str) -> Tuple[str, str,
         reasons.append("The sender address appears to use a lookalike or suspicious domain pattern.")
         indicators.append("lookalike_domain")
 
+    urls = extract_urls(body)
+    if urls:
+        lowered_urls = " ".join(urls).lower()
+        suspicious_url_matches = find_pattern_matches(lowered_urls, SUSPICIOUS_URL_PATTERNS)
+        if suspicious_url_matches:
+            reasons.append("The email contains links with potentially suspicious account or verification terms.")
+            indicators.append("suspicious_url")
+
+    parsed_headers = normalize_headers(headers)
+    if "reply-to" in parsed_headers and parsed_headers.get("reply-to", "").lower() != sender_lower:
+        reasons.append("The Reply-To header does not match the sender address.")
+        indicators.append("reply_to_mismatch")
+
+    risky_attachments = detect_attachment_risks(attachments)
+    if risky_attachments:
+        reasons.append("The email includes attachments with file types that are commonly abused in phishing attacks.")
+        indicators.append("risky_attachment")
+
     if len(indicators) >= 3:
         verdict = "phishing"
         confidence = "high"
-        recommended_action = "Do not click links, open attachments, or reply. Report the email to the security team."
     elif len(indicators) == 2:
         verdict = "suspicious"
         confidence = "medium"
-        recommended_action = "Treat the email with caution and verify the sender through a trusted channel."
     elif len(indicators) == 1:
         verdict = "suspicious"
         confidence = "low"
-        recommended_action = "Review the email carefully before taking any action."
     else:
         verdict = "likely_safe"
         confidence = "medium"
         reasons.append("No strong phishing indicators were detected by the rule-based checks.")
         indicators.append("no_strong_indicators")
+
+    if "risky_attachment" in indicators and verdict in {"phishing", "suspicious"}:
+        recommended_action = "Do not click links, open attachments, or reply. Report the email to the security team."
+    elif verdict == "phishing":
+        recommended_action = "Do not click links, open attachments, or reply. Report the email to the security team."
+    elif verdict == "suspicious":
+        recommended_action = "Treat the email with caution and verify the sender through a trusted channel."
+    else:
         recommended_action = "No immediate phishing indicators detected, but continue normal caution."
 
     return verdict, confidence, reasons, indicators, recommended_action

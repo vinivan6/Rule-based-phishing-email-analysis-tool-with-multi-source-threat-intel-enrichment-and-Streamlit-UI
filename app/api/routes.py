@@ -16,7 +16,9 @@ def analyze_email(request: EmailAnalysisRequest):
     verdict, confidence, reasons, indicators, recommended_action = analyze_email_rules(
         sender=request.sender,
         subject=request.subject,
-        body=request.body
+        body=request.body,
+        headers=request.headers,
+        attachments=request.attachments
     )
 
     return EmailAnalysisResponse(
@@ -26,5 +28,5 @@ def analyze_email(request: EmailAnalysisRequest):
         indicators=indicators,
         recommended_action=recommended_action,
         llm_notes="LLM analysis is not connected yet. Current result is based on rule-based checks.",
-        model_used="rule_based_v1"
+        model_used="rule_based_v2"
     )

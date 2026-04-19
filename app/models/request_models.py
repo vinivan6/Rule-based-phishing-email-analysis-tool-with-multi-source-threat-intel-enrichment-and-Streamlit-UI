@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 from pydantic import BaseModel, EmailStr, Field
 
 
@@ -9,4 +9,8 @@ class EmailAnalysisRequest(BaseModel):
     headers: Optional[str] = Field(
         default=None,
         description="Optional raw email headers"
+    )
+    attachments: Optional[List[str]] = Field(
+        default=None,
+        description="Optional list of attachment filenames"
     )
