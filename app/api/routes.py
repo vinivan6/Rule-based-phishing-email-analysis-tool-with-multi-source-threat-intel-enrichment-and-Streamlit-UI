@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 from app.models.request_models import EmailAnalysisRequest
 from app.models.response_models import EmailAnalysisResponse
+from app.services.artifact_extractor import build_artifacts
 from app.services.phishing_rules import analyze_email_rules
 
 router = APIRouter()
@@ -22,6 +23,13 @@ def analyze_email(request: EmailAnalysisRequest):
         attachments=request.attachments
     )
 
+    artifacts = build_artifacts(
+        sender=request.sender,
+        body=request.body,
+        headers=request.headers,
+        attachments=request.attachments
+    )
+
     return EmailAnalysisResponse(
         verdict=verdict,
         confidence=confidence,
@@ -29,5 +37,6 @@ def analyze_email(request: EmailAnalysisRequest):
         indicators=indicators,
         recommended_action=recommended_action,
         llm_notes="LLM analysis is not connected yet. Current result is based on rule-based checks.",
-        model_used="rule_based_v4"
+        model_used="rule_based_v5",
+        artifacts=artifacts
     )

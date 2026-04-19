@@ -34,3 +34,9 @@ def test_analyze_email_endpoint_returns_expected_structure():
     assert "recommended_action" in data
     assert "llm_notes" in data
     assert "model_used" in data
+    assert "artifacts" in data
+
+    assert "urls" in data["artifacts"]
+    assert "domains" in data["artifacts"]
+    assert "ip_addresses" in data["artifacts"]
+    assert "attachments" in data["artifacts"]
