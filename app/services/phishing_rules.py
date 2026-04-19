@@ -1,7 +1,10 @@
 import re
 from typing import List, Tuple, Optional
-from app.services.email_parser import extract_urls, normalize_headers, detect_attachment_risks
-
+from app.services.email_parser import (
+    extract_urls, normalize_headers, detect_attachment_risks,
+    extract_authentication_results, extract_return_path, extract_reply_to,
+    count_received_headers, extract_ip_addresses, 
+)
 
 URGENT_PATTERNS = [
     r"\burgent\b",
@@ -58,11 +61,19 @@ def find_pattern_matches(text: str, patterns: List[str]) -> List[str]:
 
     return matches
 
+def domain_from_email(value: Optional[str]) -> Optional[str]:
+    if not value or "@" not in value:
+        return None
+    return value.split("@")[-1].strip().lower()
+
 
 def analyze_email_rules(
-    sender: str, subject: str, body: str,
-    headers: Optional[str] = None, attachments: Optional[List[str]] = None
- ) -> Tuple[str, str, List[str], List[str], str]:
+    sender: str,
+    subject: str,
+    body: str,
+    headers: Optional[str] = None,
+    attachments: Optional[List[str]] = None
+) -> Tuple[str, str, List[str], List[str], str]:
     reasons = []
     indicators = []
 
@@ -98,14 +109,49 @@ def analyze_email_rules(
             indicators.append("suspicious_url")
 
     parsed_headers = normalize_headers(headers)
-    if "reply-to" in parsed_headers and parsed_headers.get("reply-to", "").lower() != sender_lower:
+
+    reply_to = extract_reply_to(headers)
+    if reply_to and reply_to.lower() != sender_lower:
         reasons.append("The Reply-To header does not match the sender address.")
         indicators.append("reply_to_mismatch")
+
+    auth_results = extract_authentication_results(headers)
+    if auth_results.get("spf") == "fail":
+        reasons.append("SPF authentication failed.")
+        indicators.append("spf_fail")
+
+    if auth_results.get("dkim") == "fail":
+        reasons.append("DKIM authentication failed.")
+        indicators.append("dkim_fail")
+
+    if auth_results.get("dmarc") == "fail":
+        reasons.append("DMARC authentication failed.")
+        indicators.append("dmarc_fail")
+
+    return_path = extract_return_path(headers)
+    sender_domain = domain_from_email(sender)
+    return_path_domain = domain_from_email(return_path)
+
+    if return_path and sender_domain and return_path_domain and sender_domain != return_path_domain:
+        reasons.append("The Return-Path domain does not match the sender domain.")
+        indicators.append("return_path_mismatch")
+
+    received_count = count_received_headers(headers)
+    if received_count >= 5:
+        reasons.append("The email passed through a high number of mail hops.")
+        indicators.append("many_mail_hops")
 
     risky_attachments = detect_attachment_risks(attachments)
     if risky_attachments:
         reasons.append("The email includes attachments with file types that are commonly abused in phishing attacks.")
         indicators.append("risky_attachment")
+
+    ip_addresses = extract_ip_addresses(headers)
+    if ip_addresses:
+        unique_ips = sorted(set(ip_addresses))
+        if len(unique_ips) >= 3:
+            reasons.append("Multiple IP addresses were observed in the email headers.")
+            indicators.append("multiple_header_ips")
 
     if len(indicators) >= 3:
         verdict = "phishing"

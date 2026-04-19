@@ -28,5 +28,5 @@ def analyze_email(request: EmailAnalysisRequest):
         indicators=indicators,
         recommended_action=recommended_action,
         llm_notes="LLM analysis is not connected yet. Current result is based on rule-based checks.",
-        model_used="rule_based_v2"
+        model_used="rule_based_v3"
     )
