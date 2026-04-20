@@ -68,6 +68,7 @@ TRUSTED_BRANDS = [
     "apple",
     "outlook",
     "gmail",
+    "ups",
 ]
 
 FINANCIAL_CONTEXT_PATTERNS = [
@@ -101,6 +102,52 @@ CALLBACK_PATTERNS = [
     r"\bcall\b",
     r"\bcontact support\b",
     r"\bquestions\?\s*call\b",
+]
+
+JOB_SCAM_PATTERNS = [
+    r"\bjob offer\b",
+    r"\bremote job\b",
+    r"\bdata entry\b",
+    r"\bimmediate hire\b",
+    r"\bno experience needed\b",
+    r"\bmust be 18\b",
+    r"\bwork from home\b",
+]
+
+CHANNEL_MIGRATION_PATTERNS = [
+    r"\bwhatsapp\b",
+    r"\btelegram\b",
+    r"\bpersonal email\b",
+    r"\bcontact me privately\b",
+    r"\btext me\b",
+]
+
+CHECK_FRAUD_PATTERNS = [
+    r"\bcash(ing)? checks?\b",
+    r"\breimbursement\b",
+    r"\bvendor payment\b",
+    r"\bpreferred vendor\b",
+    r"\bship(ping)? extra money back\b",
+    r"\bdeposit the check\b",
+]
+
+HELPDESK_PATTERNS = [
+    r"\bhelp desk\b",
+    r"\bit support\b",
+    r"\btechnical support\b",
+    r"\bpassword expired\b",
+    r"\bsuspicious login\b",
+    r"\bsecurity team\b",
+]
+
+OTP_PATTERNS = [
+    r"\bone[- ]time password\b",
+    r"\botp\b",
+    r"\bmfa\b",
+    r"\bverification code\b",
+    r"\bauthenticator\b",
+    r"\bapprove the notification\b",
+    r"\bread me the code\b",
 ]
 
 LOOKALIKE_REPLACEMENTS = {
@@ -200,6 +247,8 @@ def score_indicator(indicators: List[str]) -> int:
         "long_url": 1,
         "many_subdomains": 1,
         "hyphenated_domain": 1,
+        "job_scam_context": 1,
+        "vague_job_requirements": 1,
         "financial_action_bait": 2,
         "callback_phishing": 2,
         "suspicious_url": 2,
@@ -208,6 +257,13 @@ def score_indicator(indicators: List[str]) -> int:
         "display_name_spoofing": 2,
         "lookalike_domain": 2,
         "lookalike_url_domain": 2,
+        "channel_migration": 2,
+        "too_good_to_be_true_pay": 2,
+        "check_fraud_language": 3,
+        "helpdesk_impersonation": 2,
+        "otp_request": 3,
+        "mfa_bypass_language": 3,
+        "branding_mismatch_request": 3,
         "amount_mismatch": 3,
         "currency_mismatch": 3,
         "reply_to_mismatch": 3,
@@ -221,6 +277,18 @@ def score_indicator(indicators: List[str]) -> int:
     }
 
     return sum(weights.get(indicator, 1) for indicator in indicators)
+
+
+def detect_high_hourly_pay(text: str) -> bool:
+    lowered = text.lower()
+    match = re.search(r"\$ ?(\d+)(?:/\s?(?:hr|hour))", lowered)
+    if match:
+        try:
+            amount = int(match.group(1))
+            return amount >= 50
+        except ValueError:
+            return False
+    return False
 
 
 def analyze_email_rules(
@@ -269,7 +337,7 @@ def analyze_email_rules(
         indicators.append("financial_action_bait")
 
     threat_matches = find_pattern_matches(combined_text, THREAT_PATTERNS)
-    if threat_matches:
+    if threat_matches and "urgency" not in indicators:
         reasons.append("The email uses threat-oriented or fear-inducing language.")
         indicators.append("urgency")
 
@@ -278,6 +346,43 @@ def analyze_email_rules(
     if phone_numbers and callback_matches and financial_context_matches:
         reasons.append("The email combines money-related messaging with a callback phone number.")
         indicators.append("callback_phishing")
+
+    job_matches = find_pattern_matches(combined_text, JOB_SCAM_PATTERNS)
+    if job_matches:
+        reasons.append("The email contains job-offer language commonly used in recruitment scams.")
+        indicators.append("job_scam_context")
+
+    channel_matches = find_pattern_matches(combined_text, CHANNEL_MIGRATION_PATTERNS)
+    if channel_matches:
+        reasons.append("The email attempts to move the conversation to an external messaging or personal channel.")
+        indicators.append("channel_migration")
+
+    if detect_high_hourly_pay(combined_text):
+        reasons.append("The email advertises unusually high hourly pay for a likely low-barrier role.")
+        indicators.append("too_good_to_be_true_pay")
+
+    if find_pattern_matches(combined_text, [r"\bno experience needed\b", r"\bimmediate hire\b", r"\bmust be 18\b"]):
+        reasons.append("The email uses vague or low-friction hiring requirements.")
+        indicators.append("vague_job_requirements")
+
+    check_fraud_matches = find_pattern_matches(combined_text, CHECK_FRAUD_PATTERNS)
+    if check_fraud_matches:
+        reasons.append("The email contains check, reimbursement, or vendor-payment language associated with job scams.")
+        indicators.append("check_fraud_language")
+
+    helpdesk_matches = find_pattern_matches(combined_text, HELPDESK_PATTERNS)
+    if helpdesk_matches:
+        reasons.append("The email claims to be from help desk or technical support.")
+        indicators.append("helpdesk_impersonation")
+
+    otp_matches = find_pattern_matches(combined_text, OTP_PATTERNS)
+    if otp_matches:
+        reasons.append("The email references OTP, MFA, or verification code handling.")
+        indicators.append("otp_request")
+
+    if helpdesk_matches and otp_matches:
+        reasons.append("The email combines help-desk language with MFA or code-verification requests.")
+        indicators.append("mfa_bypass_language")
 
     urls = extract_urls(body)
     if urls:
@@ -387,6 +492,15 @@ def analyze_email_rules(
         elif "apple" in display_name_lower and "apple" not in sender_domain:
             reasons.append("The display name suggests Apple, but the sender domain does not match.")
             indicators.append("display_name_spoofing")
+
+    if helpdesk_matches and mentioned_brands and urls:
+        sender_brand_aligned = any(brand in (sender_domain or "") for brand in mentioned_brands)
+        url_brand_aligned = any(
+            brand in (extract_domain_from_url(url) or "") for brand in mentioned_brands for url in urls
+        )
+        if not sender_brand_aligned or not url_brand_aligned:
+            reasons.append("The email requests support-style action, but the visible branding does not align cleanly with sender or link domains.")
+            indicators.append("branding_mismatch_request")
 
     all_amounts = extract_amounts(f"{subject}\n{body}\n{' '.join(urls)}")
     unique_amounts = sorted(set(all_amounts))

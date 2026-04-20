@@ -66,3 +66,43 @@ def test_display_name_spoofing_detected():
     assert "display_name_spoofing" in indicators
     assert "brand_impersonation" in indicators
     assert "message_id_mismatch" in indicators
+
+
+def test_job_scam_detected():
+    verdict, confidence, reasons, indicators, recommended_action = analyze_email_rules(
+        sender="recruiter@career-fasttrack.net",
+        display_name="HR Recruitment",
+        subject="Immediate hire for remote data entry - $60/hr",
+        body=(
+            "We are hiring immediately. No experience needed. Must be 18. "
+            "Please continue on WhatsApp. We will send a check for equipment "
+            "and reimbursement through our preferred vendor."
+        ),
+        headers="From: recruiter@career-fasttrack.net\nReply-To: recruiter@career-fasttrack.net",
+        attachments=[]
+    )
+
+    assert verdict in {"suspicious", "phishing"}
+    assert "job_scam_context" in indicators
+    assert "channel_migration" in indicators
+    assert "too_good_to_be_true_pay" in indicators
+    assert "check_fraud_language" in indicators
+
+
+def test_helpdesk_mfa_scam_detected():
+    verdict, confidence, reasons, indicators, recommended_action = analyze_email_rules(
+        sender="support@security-notice-center.com",
+        display_name="Microsoft Help Desk",
+        subject="Suspicious login detected - verify now",
+        body=(
+            "This is technical support. Your password has expired and a suspicious login was detected. "
+            "Please read me the verification code or approve the MFA notification to verify your identity."
+        ),
+        headers="From: support@security-notice-center.com\nReply-To: support@security-notice-center.com",
+        attachments=[]
+    )
+
+    assert verdict in {"suspicious", "phishing"}
+    assert "helpdesk_impersonation" in indicators
+    assert "otp_request" in indicators
+    assert "mfa_bypass_language" in indicators
