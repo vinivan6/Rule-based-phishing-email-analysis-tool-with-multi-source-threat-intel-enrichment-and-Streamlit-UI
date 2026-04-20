@@ -7,6 +7,8 @@ class ExtractedArtifacts(BaseModel):
     domains: List[str] = Field(default_factory=list, description="Extracted domains from sender, URLs, and headers")
     ip_addresses: List[str] = Field(default_factory=list, description="Extracted IP addresses from headers")
     attachments: List[str] = Field(default_factory=list, description="Attachment filenames found in the email")
+    phone_numbers: List[str] = Field(default_factory=list, description="Extracted phone numbers from subject/body")
+    amounts: List[str] = Field(default_factory=list, description="Extracted monetary amounts from subject/body")
 
 
 class EmailAnalysisResponse(BaseModel):

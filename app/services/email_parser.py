@@ -1,5 +1,6 @@
 import re
 from typing import Dict, List, Optional
+from urllib.parse import urlparse
 
 
 URL_PATTERN = r"https?://[^\s]+"
@@ -15,6 +16,9 @@ SUSPICIOUS_ATTACHMENT_EXTENSIONS = {
     ".htm",
     ".iso"
 }
+
+PHONE_PATTERN = r"(?:\+?\d{1,2}[\s\-]?)?(?:\(?\d{3}\)?[\s\-]?)\d{3}[\s\-]?\d{4}"
+AMOUNT_PATTERN = r"(?:USD|EUR|GBP|CAD|AUD|INR|PHP|\$|€|£|₹|₱)\s?\d+(?:[.,]\d{1,2})?"
 
 
 def extract_urls(text: str) -> List[str]:
@@ -126,4 +130,26 @@ def extract_message_id(headers: Optional[str]) -> Optional[str]:
     if match:
         return match.group(1).strip()
 
+    return None
+
+
+def extract_phone_numbers(text: str) -> List[str]:
+    if not text:
+        return []
+    return re.findall(PHONE_PATTERN, text)
+
+
+def extract_amounts(text: str) -> List[str]:
+    if not text:
+        return []
+    return re.findall(AMOUNT_PATTERN, text, re.IGNORECASE)
+
+
+def extract_domain_from_url(url: str) -> Optional[str]:
+    try:
+        parsed = urlparse(url)
+        if parsed.netloc:
+            return parsed.netloc.lower()
+    except Exception:
+        return None
     return None

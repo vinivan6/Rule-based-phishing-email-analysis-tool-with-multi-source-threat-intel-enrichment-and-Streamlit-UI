@@ -1,18 +1,14 @@
 from typing import List, Optional
-from urllib.parse import urlparse
 
 from app.models.response_models import ExtractedArtifacts
-from app.services.email_parser import extract_urls, extract_ip_addresses, extract_return_path
-
-
-def extract_domain_from_url(url: str) -> Optional[str]:
-    try:
-        parsed = urlparse(url)
-        if parsed.netloc:
-            return parsed.netloc.lower()
-    except Exception:
-        return None
-    return None
+from app.services.email_parser import (
+    extract_urls,
+    extract_ip_addresses,
+    extract_return_path,
+    extract_domain_from_url,
+    extract_phone_numbers,
+    extract_amounts,
+)
 
 
 def extract_domain_from_email(email_value: Optional[str]) -> Optional[str]:
@@ -23,12 +19,15 @@ def extract_domain_from_email(email_value: Optional[str]) -> Optional[str]:
 
 def build_artifacts(
     sender: str,
+    subject: str,
     body: str,
     headers: Optional[str] = None,
     attachments: Optional[List[str]] = None
 ) -> ExtractedArtifacts:
     urls = extract_urls(body)
     ip_addresses = sorted(set(extract_ip_addresses(headers)))
+    phone_numbers = sorted(set(extract_phone_numbers(f"{subject}\n{body}")))
+    amounts = sorted(set(extract_amounts(f"{subject}\n{body}")))
 
     domains = set()
 
@@ -50,5 +49,7 @@ def build_artifacts(
         urls=urls,
         domains=sorted(domains),
         ip_addresses=ip_addresses,
-        attachments=attachments or []
+        attachments=attachments or [],
+        phone_numbers=phone_numbers,
+        amounts=amounts,
     )

@@ -40,3 +40,5 @@ def test_analyze_email_endpoint_returns_expected_structure():
     assert "domains" in data["artifacts"]
     assert "ip_addresses" in data["artifacts"]
     assert "attachments" in data["artifacts"]
+    assert "phone_numbers" in data["artifacts"]
+    assert "amounts" in data["artifacts"]

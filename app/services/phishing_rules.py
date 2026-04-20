@@ -1,5 +1,5 @@
 import re
-from typing import List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional
 from app.services.email_parser import (
     extract_urls,
     detect_attachment_risks,
@@ -9,6 +9,9 @@ from app.services.email_parser import (
     extract_reply_to,
     extract_ip_addresses,
     extract_message_id,
+    extract_phone_numbers,
+    extract_amounts,
+    extract_domain_from_url,
 )
 
 
@@ -19,7 +22,7 @@ URGENT_PATTERNS = [
     r"\bverify now\b",
     r"\baccount will be suspended\b",
     r"\bmailbox will be disabled\b",
-    r"\bfinal warning\b"
+    r"\bfinal warning\b",
 ]
 
 CREDENTIAL_PATTERNS = [
@@ -28,14 +31,14 @@ CREDENTIAL_PATTERNS = [
     r"\blogin to continue\b",
     r"\breset your password\b",
     r"\bupdate your credentials\b",
-    r"\bsign in now\b"
+    r"\bsign in now\b",
 ]
 
 GENERIC_GREETING_PATTERNS = [
     r"\bdear user\b",
     r"\bdear customer\b",
     r"\bvalued customer\b",
-    r"\bdear account holder\b"
+    r"\bdear account holder\b",
 ]
 
 SUSPICIOUS_DOMAIN_PATTERNS = [
@@ -45,7 +48,7 @@ SUSPICIOUS_DOMAIN_PATTERNS = [
     r"arnazon",
     r"secure-login",
     r"account-verify",
-    r"support-update"
+    r"support-update",
 ]
 
 SUSPICIOUS_URL_PATTERNS = [
@@ -54,7 +57,7 @@ SUSPICIOUS_URL_PATTERNS = [
     r"reset",
     r"secure",
     r"account",
-    r"update"
+    r"update",
 ]
 
 TRUSTED_BRANDS = [
@@ -64,8 +67,49 @@ TRUSTED_BRANDS = [
     "amazon",
     "apple",
     "outlook",
-    "gmail"
+    "gmail",
 ]
+
+FINANCIAL_CONTEXT_PATTERNS = [
+    r"\bpending deposit\b",
+    r"\bmoney received\b",
+    r"\baccept money\b",
+    r"\btransfer to a bank\b",
+    r"\bpayment pending\b",
+    r"\bpayout\b",
+    r"\bclaim funds\b",
+    r"\baccount activation\b",
+]
+
+FINANCIAL_ACTION_BAIT_PATTERNS = [
+    r"\bget instant access\b",
+    r"\baccept money\b",
+    r"\bclaim now\b",
+    r"\bactivate\b",
+    r"\btransfer now\b",
+]
+
+THREAT_PATTERNS = [
+    r"\bsuspension\b",
+    r"\bviolation\b",
+    r"\blegal action\b",
+    r"\bdisabled\b",
+    r"\brestricted\b",
+]
+
+CALLBACK_PATTERNS = [
+    r"\bcall\b",
+    r"\bcontact support\b",
+    r"\bquestions\?\s*call\b",
+]
+
+LOOKALIKE_REPLACEMENTS = {
+    "0": "o",
+    "1": "l",
+    "3": "e",
+    "5": "s",
+    "rn": "m",
+}
 
 
 def find_pattern_matches(text: str, patterns: List[str]) -> List[str]:
@@ -105,6 +149,80 @@ def find_brands_in_text(text: str) -> List[str]:
     return found
 
 
+def count_subdomains(domain: str) -> int:
+    return domain.count(".")
+
+
+def looks_like_ip_domain(domain: str) -> bool:
+    return re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}", domain or "") is not None
+
+
+def normalize_lookalikes(text: str) -> str:
+    normalized = text.lower()
+    for old, new in LOOKALIKE_REPLACEMENTS.items():
+        normalized = normalized.replace(old, new)
+    return normalized
+
+
+def detect_lookalike_brand_in_domain(domain: Optional[str]) -> bool:
+    if not domain:
+        return False
+
+    normalized = normalize_lookalikes(domain)
+    for brand in TRUSTED_BRANDS:
+        if brand in normalized and brand not in domain.lower():
+            return True
+    return False
+
+
+def extract_currency_tokens(amounts: List[str]) -> List[str]:
+    tokens = []
+    for amount in amounts:
+        upper_amount = amount.upper()
+        if "USD" in upper_amount or "$" in amount:
+            tokens.append("USD")
+        elif "PHP" in upper_amount or "₱" in amount:
+            tokens.append("PHP")
+        elif "EUR" in upper_amount or "€" in amount:
+            tokens.append("EUR")
+        elif "GBP" in upper_amount or "£" in amount:
+            tokens.append("GBP")
+        elif "INR" in upper_amount or "₹" in amount:
+            tokens.append("INR")
+    return tokens
+
+
+def score_indicator(indicators: List[str]) -> int:
+    weights: Dict[str, int] = {
+        "financial_context": 1,
+        "urgency": 1,
+        "generic_greeting": 1,
+        "long_url": 1,
+        "many_subdomains": 1,
+        "hyphenated_domain": 1,
+        "financial_action_bait": 2,
+        "callback_phishing": 2,
+        "suspicious_url": 2,
+        "credential_request": 2,
+        "brand_impersonation": 2,
+        "display_name_spoofing": 2,
+        "lookalike_domain": 2,
+        "lookalike_url_domain": 2,
+        "amount_mismatch": 3,
+        "currency_mismatch": 3,
+        "reply_to_mismatch": 3,
+        "spf_fail": 3,
+        "dkim_fail": 3,
+        "dmarc_fail": 3,
+        "return_path_mismatch": 3,
+        "message_id_mismatch": 3,
+        "risky_attachment": 3,
+        "ip_in_url": 3,
+    }
+
+    return sum(weights.get(indicator, 1) for indicator in indicators)
+
+
 def analyze_email_rules(
     sender: str,
     display_name: Optional[str] = None,
@@ -140,6 +258,27 @@ def analyze_email_rules(
         reasons.append("The sender address appears to use a lookalike or suspicious domain pattern.")
         indicators.append("lookalike_domain")
 
+    financial_context_matches = find_pattern_matches(combined_text, FINANCIAL_CONTEXT_PATTERNS)
+    if financial_context_matches:
+        reasons.append("The email contains financial transaction or payout language.")
+        indicators.append("financial_context")
+
+    financial_action_matches = find_pattern_matches(combined_text, FINANCIAL_ACTION_BAIT_PATTERNS)
+    if financial_action_matches:
+        reasons.append("The email pushes immediate financial action or activation behavior.")
+        indicators.append("financial_action_bait")
+
+    threat_matches = find_pattern_matches(combined_text, THREAT_PATTERNS)
+    if threat_matches:
+        reasons.append("The email uses threat-oriented or fear-inducing language.")
+        indicators.append("urgency")
+
+    phone_numbers = extract_phone_numbers(f"{subject}\n{body}")
+    callback_matches = find_pattern_matches(combined_text, CALLBACK_PATTERNS)
+    if phone_numbers and callback_matches and financial_context_matches:
+        reasons.append("The email combines money-related messaging with a callback phone number.")
+        indicators.append("callback_phishing")
+
     urls = extract_urls(body)
     if urls:
         lowered_urls = " ".join(urls).lower()
@@ -147,6 +286,29 @@ def analyze_email_rules(
         if suspicious_url_matches:
             reasons.append("The email contains links with potentially suspicious account or verification terms.")
             indicators.append("suspicious_url")
+
+        for url in urls:
+            if len(url) > 75 and "long_url" not in indicators:
+                reasons.append("The email contains an unusually long URL.")
+                indicators.append("long_url")
+
+            url_domain = extract_domain_from_url(url)
+            if url_domain:
+                if count_subdomains(url_domain) > 3 and "many_subdomains" not in indicators:
+                    reasons.append("The email contains a URL with a high number of subdomains.")
+                    indicators.append("many_subdomains")
+
+                if "-" in url_domain and "hyphenated_domain" not in indicators:
+                    reasons.append("The email contains a hyphenated domain, which is common in lookalike infrastructure.")
+                    indicators.append("hyphenated_domain")
+
+                if looks_like_ip_domain(url_domain) and "ip_in_url" not in indicators:
+                    reasons.append("The email contains a URL that uses a raw IP address instead of a named domain.")
+                    indicators.append("ip_in_url")
+
+                if detect_lookalike_brand_in_domain(url_domain) and "lookalike_url_domain" not in indicators:
+                    reasons.append("The email contains a URL domain that appears to mimic a trusted brand.")
+                    indicators.append("lookalike_url_domain")
 
     reply_to = extract_reply_to(headers)
     if reply_to and reply_to.lower() != sender_lower:
@@ -226,13 +388,26 @@ def analyze_email_rules(
             reasons.append("The display name suggests Apple, but the sender domain does not match.")
             indicators.append("display_name_spoofing")
 
-    if len(indicators) >= 3:
+    all_amounts = extract_amounts(f"{subject}\n{body}\n{' '.join(urls)}")
+    unique_amounts = sorted(set(all_amounts))
+    if len(unique_amounts) >= 2:
+        reasons.append("The email contains multiple inconsistent monetary amounts.")
+        indicators.append("amount_mismatch")
+
+    currency_tokens = sorted(set(extract_currency_tokens(all_amounts)))
+    if len(currency_tokens) >= 2:
+        reasons.append("The email mixes multiple currencies in a suspicious way.")
+        indicators.append("currency_mismatch")
+
+    score = score_indicator(indicators)
+
+    if score >= 8:
         verdict = "phishing"
         confidence = "high"
-    elif len(indicators) == 2:
+    elif score >= 4:
         verdict = "suspicious"
         confidence = "medium"
-    elif len(indicators) == 1:
+    elif score >= 1:
         verdict = "suspicious"
         confidence = "low"
     else:
