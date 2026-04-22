@@ -78,6 +78,31 @@ Decision Engine
         ↓
 Final Verdict + Recommended Action
 ```
+## Setup
+### 1. Create and activate virtual environment
+#### Windows PowerShell
+```
+powershell
+py -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+### 2. Install dependencies
+pip install -r requirements.txt
+
+### 3. Configure environment variables
+Create a .env file in the root directory:
+VT_API_KEY=your_virustotal_key
+ABUSEIPDB_API_KEY=your_abuseipdb_key
+URLHAUS_AUTH_KEY=your_urlhaus_auth_key
+OTX_API_KEY=your_otx_key
+
+### 4. Run the Application
+#### Start FastAPI backend:
+uvicorn app.main:app --reload
+API docs: http://127.0.0.1:8000/docs
+#### Start Streamlit UI:
+streamlit run ui_app.py
+
 ## Known Limitations
 - `.msg` not supported yet
 - LLM explanation not integrated yet
