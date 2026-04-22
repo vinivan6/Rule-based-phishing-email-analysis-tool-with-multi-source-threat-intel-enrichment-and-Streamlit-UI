@@ -1,4 +1,4 @@
-# Phishing Email Analysis Agent
+# Rule-based Phishing Email Analysis Tool with Multi-Source Threat Intel Enrichment and Streamlit UI
 
 A Python and FastAPI-based cybersecurity application that analyzes suspicious emails and produces a structured phishing risk assessment using rule-based detection, threat-intelligence enrichment, semantic classification, and decision logic.
 
@@ -81,6 +81,5 @@ Final Verdict + Recommended Action
 ## Known Limitations
 - `.msg` not supported yet
 - LLM explanation not integrated yet
-- IP extraction from complex headers may still include noisy values
 - Threat-intel feeds can produce occasional noisy results
 - IP extraction from complex headers may still include noisy but syntactically valid IP-like values
