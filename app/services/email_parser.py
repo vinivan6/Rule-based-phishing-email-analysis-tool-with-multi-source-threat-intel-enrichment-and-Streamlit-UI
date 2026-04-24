@@ -2,6 +2,7 @@ import re
 import ipaddress
 from typing import Dict, List, Optional
 from urllib.parse import urlparse
+from email.utils import parseaddr
 
 
 URL_PATTERN = r"https?://[^\s]+"
@@ -161,6 +162,116 @@ def extract_ip_addresses(headers: Optional[str]) -> List[str]:
         return []
 
     return _extract_valid_ipv4s("\n".join(relevant_lines))
+
+def extract_domain_from_email(email_address: Optional[str]) -> str:
+    if not email_address:
+        return ""
+
+    _, parsed_email = parseaddr(email_address)
+
+    if "@" not in parsed_email:
+        return ""
+
+    return parsed_email.split("@")[-1].strip().lower()
+
+
+def get_organizational_domain(domain: str) -> str:
+    if not domain:
+        return ""
+
+    parts = domain.lower().split(".")
+
+    if len(parts) >= 2:
+        return ".".join(parts[-2:])
+
+    return domain.lower()
+
+
+def domains_align(domain_a: str, domain_b: str) -> bool:
+    if not domain_a or not domain_b:
+        return False
+
+    return get_organizational_domain(domain_a) == get_organizational_domain(domain_b)
+
+
+def extract_header_domain(headers: Optional[str], header_name: str) -> str:
+    if not headers:
+        return ""
+
+    pattern = rf"^{header_name}:\s*(.+)$"
+
+    for line in headers.splitlines():
+        match = re.match(pattern, line, re.IGNORECASE)
+        if match:
+            return extract_domain_from_email(match.group(1))
+
+    return ""
+
+
+def extract_dkim_domain(headers: Optional[str]) -> str:
+    if not headers:
+        return ""
+
+    match = re.search(r"dkim=pass.*?header\.i=@([A-Za-z0-9.-]+)", headers, re.IGNORECASE)
+    if match:
+        return match.group(1).lower()
+
+    match = re.search(r"\bd=([A-Za-z0-9.-]+)", headers, re.IGNORECASE)
+    if match:
+        return match.group(1).lower()
+
+    return ""
+
+
+def extract_spf_mailfrom_domain(headers: Optional[str]) -> str:
+    if not headers:
+        return ""
+
+    match = re.search(r"smtp\.mailfrom=([A-Za-z0-9@._+-]+)", headers, re.IGNORECASE)
+    if match:
+        value = match.group(1).strip().lower()
+
+        if "@" in value:
+            return extract_domain_from_email(value)
+
+        return value
+
+    return ""
+
+
+def extract_dmarc_header_from_domain(headers: Optional[str]) -> str:
+    if not headers:
+        return ""
+
+    match = re.search(r"header\.from=([A-Za-z0-9.-]+)", headers, re.IGNORECASE)
+    if match:
+        return match.group(1).lower()
+
+    return ""
+
+
+def analyze_domain_alignment(sender: str, headers: Optional[str]) -> dict:
+    from_domain = extract_domain_from_email(sender)
+    reply_to_domain = extract_header_domain(headers, "Reply-To")
+    return_path_domain = extract_header_domain(headers, "Return-Path")
+    dkim_domain = extract_dkim_domain(headers)
+    spf_mailfrom_domain = extract_spf_mailfrom_domain(headers)
+    dmarc_header_from_domain = extract_dmarc_header_from_domain(headers)
+
+    return {
+        "from_domain": from_domain,
+        "reply_to_domain": reply_to_domain,
+        "return_path_domain": return_path_domain,
+        "dkim_domain": dkim_domain,
+        "spf_mailfrom_domain": spf_mailfrom_domain,
+        "dmarc_header_from_domain": dmarc_header_from_domain,
+        "reply_to_aligned": domains_align(from_domain, reply_to_domain) if reply_to_domain else True,
+        "return_path_aligned": domains_align(from_domain, return_path_domain) if return_path_domain else True,
+        "dkim_aligned": domains_align(from_domain, dkim_domain) if dkim_domain else True,
+        "spf_aligned": domains_align(from_domain, spf_mailfrom_domain) if spf_mailfrom_domain else True,
+        "dmarc_header_from_aligned": domains_align(from_domain, dmarc_header_from_domain) if dmarc_header_from_domain else True,
+    }
+
 
 def extract_message_id(headers: Optional[str]) -> Optional[str]:
     if not headers:

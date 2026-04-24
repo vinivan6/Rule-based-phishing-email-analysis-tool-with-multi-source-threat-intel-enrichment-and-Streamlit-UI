@@ -8,6 +8,7 @@ from app.services.email_parser import (
     count_received_headers,
     extract_reply_to,
     extract_ip_addresses,
+    analyze_domain_alignment,
     extract_message_id,
     extract_phone_numbers,
     extract_amounts,
@@ -272,6 +273,11 @@ def score_indicator(indicators: List[str]) -> int:
         "dmarc_fail": 3,
         "return_path_mismatch": 3,
         "message_id_mismatch": 3,
+        "spf_domain_misalignment": 3,
+        "dkim_domain_misalignment": 3,
+        "dmarc_domain_misalignment": 3,
+        "return_path_domain_misalignment": 3,
+        "reply_to_domain_misalignment": 3,
         "risky_attachment": 3,
         "ip_in_url": 3,
     }
@@ -512,6 +518,28 @@ def analyze_email_rules(
     if len(currency_tokens) >= 2:
         reasons.append("The email mixes multiple currencies in a suspicious way.")
         indicators.append("currency_mismatch")
+
+    alignment = analyze_domain_alignment(sender, headers)
+
+    if not alignment["spf_aligned"]:
+        reasons.append("SPF passed for a domain that does not align with the visible sender domain.")
+        indicators.append("spf_domain_misalignment")
+
+    if not alignment["dkim_aligned"]:
+        reasons.append("DKIM passed for a domain that does not align with the visible sender domain.")
+        indicators.append("dkim_domain_misalignment")
+
+    if not alignment["dmarc_header_from_aligned"]:
+        reasons.append("DMARC header-from domain does not align with the visible sender domain.")
+        indicators.append("dmarc_domain_misalignment")
+
+    if not alignment["return_path_aligned"]:
+        reasons.append("Return-Path domain does not align with the visible sender domain.")
+        indicators.append("return_path_domain_misalignment")
+
+    if not alignment["reply_to_aligned"]:
+        reasons.append("Reply-To domain does not align with the visible sender domain.")
+        indicators.append("reply_to_domain_misalignment")
 
     score = score_indicator(indicators)
 

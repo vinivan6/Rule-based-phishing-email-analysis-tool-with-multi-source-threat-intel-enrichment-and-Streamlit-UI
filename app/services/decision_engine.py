@@ -56,6 +56,9 @@ def decide_final_outcome(
     if final_verdict == "likely_safe" and category == "uncertain":
         final_action = "No strong phishing indicators were detected. Review normally before interacting."
 
+    if final_verdict == "phishing" and final_confidence == "high":
+        final_action = "Do not interact with links, attachments, payment requests, or sender instructions. Verify through a trusted channel and report the message."
+
     return {
         "final_verdict": final_verdict,
         "final_confidence": final_confidence,

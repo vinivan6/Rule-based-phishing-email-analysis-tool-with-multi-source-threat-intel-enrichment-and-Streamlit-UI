@@ -76,7 +76,7 @@ def analyze_email(request: EmailAnalysisRequest):
         indicators=indicators,
         recommended_action=recommended_action,
         llm_notes="LLM analysis is not connected yet. Current result is based on rule-based checks plus semantic classification and threat-intelligence enrichment.",
-        model_used="rule_based_v12_semantic",
+        model_used="rule_based_v13_alignment",
         artifacts=artifacts,
         reputation=reputation,
         reputation_summary=reputation_summary,
